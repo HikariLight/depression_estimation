@@ -1,0 +1,9 @@
+.env
+jobs/
+misc/
+wandb/
+data/
+classifiers/
+.ipynb_checkpoints
+__pycache__
+*.sl
