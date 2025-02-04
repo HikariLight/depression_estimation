@@ -119,12 +119,13 @@ for n in range(1, args.few_shots + 1):
 
         # ---- Constructing few_shot examples
         few_shot_examples = []
-        while True:
-            random_index = random.randint(0, len(dw_dataset["train"]) - 1)
-            random_element = dw_dataset["train"][random_index]
-            if random_element not in few_shot_examples:
-                few_shot_examples.append(random_element)
-                break
+        for j in range(n):
+            while True:
+                random_index = random.randint(0, len(dw_dataset["train"]) - 1)
+                random_element = dw_dataset["train"][random_index]
+                if random_element not in few_shot_examples:
+                    few_shot_examples.append(random_element)
+                    break
 
         few_shot_string = construct_few_shot_string(few_shot_examples)
 

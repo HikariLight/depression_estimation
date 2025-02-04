@@ -29,23 +29,23 @@ parser.add_argument("--verbose", action="store_true")
 args = parser.parse_args()
 print(args)
 
-# # ---- Hyperparams
-# model_name = args.model_name
+# ---- Hyperparams
+model_name = args.model_name
 
-# # ---- Model loading
-# model = AutoModelForCausalLM.from_pretrained(
-#     model_name,
-#     device_map="auto",
-#     torch_dtype=torch.bfloat16,
-#     trust_remote_code=True,
-#     attn_implementation="flash_attention_2",
-# )
+# ---- Model loading
+model = AutoModelForCausalLM.from_pretrained(
+    model_name,
+    device_map="auto",
+    torch_dtype=torch.bfloat16,
+    trust_remote_code=True,
+    attn_implementation="flash_attention_2",
+)
 
-# tokenizer = AutoTokenizer.from_pretrained(model_name)
+tokenizer = AutoTokenizer.from_pretrained(model_name)
 
-# model.generation_config.temperature = None
-# model.generation_config.top_p = None
-# args.verbose and print(model.generation_config)
+model.generation_config.temperature = None
+model.generation_config.top_p = None
+args.verbose and print(model.generation_config)
 
 # ---- Config loading
 with open("./prompts.json", "r") as json_file:
@@ -58,245 +58,246 @@ args.verbose and print(generation_prompt)
 print(generation_prompt)
 
 
-# def parse_model_output(output: str):
-#     pattern = r"\b[A-Z]{3}\s*-\s*(\d)"
+def parse_model_output(output: str):
+    pattern = r"\b[A-Z]{3}\s*-\s*(\d)"
 
-#     symptoms = [int(match.group(1)) for match in re.finditer(pattern, output)]
-#     symptoms = symptoms[:8]
+    symptoms = [int(match.group(1)) for match in re.finditer(pattern, output)]
+    symptoms = symptoms[:8]
 
-#     if len(symptoms) != 8:
-#         return None
+    if len(symptoms) != 8:
+        return None
 
-#     return symptoms
-
-
-# # ---- Util function
-# def generate(
-#     prompt: str,
-#     input: str,
-#     examples: str | None = None,
-#     max_length=8192,
-#     log_length=False,
-# ):
-#     messages = [{"role": "user", "content": prompt.format(examples, input)}]
-#     inputs = tokenizer.apply_chat_template(
-#         messages, return_tensors="pt", add_generation_prompt=True
-#     ).to("cuda")
-#     attention_mask = torch.ones_like(inputs)
-#     generated_ids = model.generate(
-#         inputs,
-#         attention_mask=attention_mask,
-#         max_new_tokens=max_length,
-#         pad_token_id=tokenizer.eos_token_id,
-#         do_sample=False,
-#         num_beams=1,
-#     )
-
-#     input_length = inputs.shape[1]
-#     total_length = generated_ids.shape[1]
-#     generated_length = total_length - input_length
-
-#     print(" > Generated length: ", generated_length)
-#     log_length and wandb.log({"inference/generated_tokens": generated_length})
-
-#     output = tokenizer.batch_decode(
-#         generated_ids[:, input_length:], skip_special_tokens=True
-#     )[0]
-#     return output
+    return symptoms
 
 
-# # ---- Dataset prep -----
-# dw_dataset = prepare_daic_woz("./data/DAIC-WOZ")
-# print(dw_dataset)
+# ---- Util function
+def generate(
+    prompt: str,
+    input: str,
+    examples: str | None = None,
+    max_length=8192,
+    log_length=False,
+):
+    messages = [{"role": "user", "content": prompt.format(examples, input)}]
+    inputs = tokenizer.apply_chat_template(
+        messages, return_tensors="pt", add_generation_prompt=True
+    ).to("cuda")
+    attention_mask = torch.ones_like(inputs)
+    generated_ids = model.generate(
+        inputs,
+        attention_mask=attention_mask,
+        max_new_tokens=max_length,
+        pad_token_id=tokenizer.eos_token_id,
+        do_sample=False,
+        num_beams=1,
+    )
 
-# # # ---- Sanity check
-# # element = dw_dataset["train"][5]
-# # start_time = time.time()
-# # model_output = generate(generation_prompt, element["dialogue"])
-# # print(model_output)
-# # print(" > Parsed: ", parse_model_output(model_output))
-# # print(" > Golden: ", element["symptoms"])
-# # print(f" > Execution time: {(time.time() - start_time):.2f}s")
+    input_length = inputs.shape[1]
+    total_length = generated_ids.shape[1]
+    generated_length = total_length - input_length
+
+    print(" > Generated length: ", generated_length)
+    log_length and wandb.log({"inference/generated_tokens": generated_length})
+
+    output = tokenizer.batch_decode(
+        generated_ids[:, input_length:], skip_special_tokens=True
+    )[0]
+    return output
 
 
-# def construct_few_shot_string(few_shot_examples):
-#     few_shot_string = ""
+# ---- Dataset prep -----
+dw_dataset = prepare_daic_woz("./data/DAIC-WOZ")
+print(dw_dataset)
 
-#     symptoms = ["LOI", "DEP", "SLE", "ENE", "EAT", "LSE", "CON", "MOV"]
-
-#     for element in few_shot_examples:
-#         few_shot_string += f"#### Example dialogue:\n{element['dialogue']}\n\n#### Example dialogue's symptoms:\n"
-#         for i, score in enumerate(element["symptoms"]):
-#             few_shot_string += f"{symptoms[i]} - {score}\n"
-
-#     return few_shot_string
-
-
-# # ---- Inference
-# seeds = [42, 12345, 9876, 2024, 8675309]
-# raw_outputs = {}
+# # ---- Sanity check
+# element = dw_dataset["train"][5]
+# start_time = time.time()
+# model_output = generate(generation_prompt, element["dialogue"])
+# print(model_output)
+# print(" > Parsed: ", parse_model_output(model_output))
+# print(" > Golden: ", element["symptoms"])
+# print(f" > Execution time: {(time.time() - start_time):.2f}s")
 
 
-# for n in range(1, args.few_shots + 1):
-#     run_name = f"[FS][{n}_shot] {args.model_name.split('/')[1]}"
-#     run = wandb.init(
-#         project="depression_detection",
-#         name=run_name,
-#         config={
-#             "prompt": args.prompt,
-#         },
-#     )
+def construct_few_shot_string(few_shot_examples):
+    few_shot_string = ""
 
-#     print("-" * 10, f"Evaluation {n}_shot", "-" * 10)
+    symptoms = ["LOI", "DEP", "SLE", "ENE", "EAT", "LSE", "CON", "MOV"]
 
-#     dep_classif_evals = []
-#     phq_score_evals = []
-#     per_symptom_evals = []
-#     severity_class_evals = []
+    for element in few_shot_examples:
+        few_shot_string += f"#### Example dialogue:\n{element['dialogue']}\n\n#### Example dialogue's symptoms:\n"
+        for i, score in enumerate(element["symptoms"]):
+            few_shot_string += f"{symptoms[i]} - {score}\n"
 
-#     raw_outputs = {}
+    return few_shot_string
 
-#     for seed in seeds:
-#         set_seed(seed)
 
-#         print("-" * 5, f"Evaluation seed: {seed}", "-" * 5)
+# ---- Inference
+seeds = [42, 12345, 9876, 2024, 8675309]
+raw_outputs = {}
 
-#         # ---- Constructing few_shot examples
-#         few_shot_examples = []
-#         while True:
-#             random_index = random.randint(0, len(dw_dataset["train"]) - 1)
-#             random_element = dw_dataset["train"][random_index]
-#             if random_element not in few_shot_examples:
-#                 few_shot_examples.append(random_element)
-#                 break
 
-#         few_shot_string = construct_few_shot_string(few_shot_examples)
+for n in range(1, args.few_shots + 1):
+    run_name = f"[FS][{n}_shot] {args.model_name.split('/')[1]}"
+    run = wandb.init(
+        project="depression_detection",
+        name=run_name,
+        config={
+            "prompt": args.prompt,
+        },
+    )
 
-#         # ---- Inference
-#         phq_score_refs = []
-#         phq_score_preds = []
+    print("-" * 10, f"Evaluation {n}_shot", "-" * 10)
 
-#         binary_dep_refs = []
-#         binary_dep_preds = []
+    dep_classif_evals = []
+    phq_score_evals = []
+    per_symptom_evals = []
+    severity_class_evals = []
 
-#         raw_preds = []
-#         raw_refs = []
+    raw_outputs = {}
 
-#         severity_class_preds = []
-#         severity_class_refs = []
+    for seed in seeds:
+        set_seed(seed)
 
-#         for element in dw_dataset["test"]:
-#             model_output = generate(
-#                 generation_prompt,
-#                 element["dialogue"],
-#                 examples=few_shot_string,
-#                 max_length=args.max_length,
-#             )
+        print("-" * 5, f"Evaluation seed: {seed}", "-" * 5)
 
-#             preds = parse_model_output(model_output)
+        # ---- Constructing few_shot examples
+        few_shot_examples = []
+        for j in range(n):
+            while True:
+                random_index = random.randint(0, len(dw_dataset["train"]) - 1)
+                random_element = dw_dataset["train"][random_index]
+                if random_element not in few_shot_examples:
+                    few_shot_examples.append(random_element)
+                    break
 
-#             args.verbose and print(model_output)
-#             args.verbose and print(" > Preds: ", preds)
-#             args.verbose and print(" > Refs", element["symptoms"])
+        few_shot_string = construct_few_shot_string(few_shot_examples)
 
-#             if not preds:
-#                 print(" > Unparsable output.")
+        # ---- Inference
+        phq_score_refs = []
+        phq_score_preds = []
 
-#                 while True:
-#                     regularized_output = generate(
-#                         regularization_prompt, model_output, log_length=False
-#                     )
-#                     preds = parse_model_output(regularized_output)
-#                     if preds:
-#                         args.verbose and print(" > Regularized Preds: ", preds)
-#                         break
+        binary_dep_refs = []
+        binary_dep_preds = []
 
-#             raw_preds.append(preds)
-#             raw_refs.append(element["symptoms"])
+        raw_preds = []
+        raw_refs = []
 
-#             binary_dep_preds.append(int(sum(preds) > 9))
-#             binary_dep_refs.append(int(sum(element["symptoms"]) > 9))
+        severity_class_preds = []
+        severity_class_refs = []
 
-#             phq_score_preds.append(sum(preds))
-#             phq_score_refs.append(sum(element["symptoms"]))
+        for element in dw_dataset["test"]:
+            model_output = generate(
+                generation_prompt,
+                element["dialogue"],
+                examples=few_shot_string,
+                max_length=args.max_length,
+            )
 
-#             severity_class_preds.append(get_severity_class(sum(preds)))
-#             severity_class_refs.append(get_severity_class(sum(element["symptoms"])))
+            preds = parse_model_output(model_output)
 
-#         # ---- Eval
-#         classif_seed_evals = compute_dep_classif_metrics(
-#             binary_dep_preds, binary_dep_refs
-#         )
-#         dep_classif_evals.append(classif_seed_evals)
-#         print(json.dumps(classif_seed_evals, indent=4))
+            args.verbose and print(model_output)
+            args.verbose and print(" > Preds: ", preds)
+            args.verbose and print(" > Refs", element["symptoms"])
 
-#         phq_score_seed_evals = compute_phq_score_metrics(
-#             phq_score_preds, phq_score_refs
-#         )
-#         phq_score_evals.append(phq_score_seed_evals)
-#         print(json.dumps(phq_score_seed_evals, indent=4))
+            if not preds:
+                print(" > Unparsable output.")
 
-#         severity_class_seed_evals = compute_severity_class_evals(
-#             severity_class_preds, severity_class_refs
-#         )
-#         severity_class_evals.append(severity_class_seed_evals)
-#         print(json.dumps(severity_class_seed_evals, indent=4))
+                while True:
+                    regularized_output = generate(
+                        regularization_prompt, model_output, log_length=False
+                    )
+                    preds = parse_model_output(regularized_output)
+                    if preds:
+                        args.verbose and print(" > Regularized Preds: ", preds)
+                        break
 
-#         per_symptom_seed_evals = calculate_per_symptom_metrics(raw_preds, raw_refs)
-#         per_symptom_evals.append(per_symptom_seed_evals)
-#         print(json.dumps(per_symptom_seed_evals, indent=4))
+            raw_preds.append(preds)
+            raw_refs.append(element["symptoms"])
 
-#         raw_outputs[seed] = {"refs": raw_refs, "preds": raw_preds}
+            binary_dep_preds.append(int(sum(preds) > 9))
+            binary_dep_refs.append(int(sum(element["symptoms"]) > 9))
 
-#     avg_classif_evals = compute_average_metrics(dep_classif_evals)
-#     print(json.dumps(avg_classif_evals, indent=4))
-#     for metric in avg_classif_evals:
-#         wandb.log({f"classif_eval/avg_{metric}": avg_classif_evals[metric]["score"]})
+            phq_score_preds.append(sum(preds))
+            phq_score_refs.append(sum(element["symptoms"]))
 
-#     avg_severity_class_evals = compute_average_metrics(severity_class_evals)
-#     print(json.dumps(avg_severity_class_evals, indent=4))
-#     for metric in avg_severity_class_evals:
-#         wandb.log(
-#             {
-#                 f"severity_class_eval/avg_{metric}": avg_severity_class_evals[metric][
-#                     "score"
-#                 ]
-#             }
-#         )
+            severity_class_preds.append(get_severity_class(sum(preds)))
+            severity_class_refs.append(get_severity_class(sum(element["symptoms"])))
 
-#     avg_phq_score_evals = compute_average_metrics(phq_score_evals)
-#     print(json.dumps(avg_phq_score_evals, indent=4))
-#     for metric in avg_phq_score_evals:
-#         wandb.log(
-#             {f"phq_regression_eval/avg_{metric}": avg_phq_score_evals[metric]["score"]}
-#         )
+        # ---- Eval
+        classif_seed_evals = compute_dep_classif_metrics(
+            binary_dep_preds, binary_dep_refs
+        )
+        dep_classif_evals.append(classif_seed_evals)
+        print(json.dumps(classif_seed_evals, indent=4))
 
-#     avg_symptom_metrics = compute_average_symptom_metrics(per_symptom_evals)
-#     print(json.dumps(avg_symptom_metrics, indent=4))
-#     for symptom in avg_symptom_metrics:
-#         for metric in avg_symptom_metrics[symptom]:
-#             wandb.log(
-#                 {
-#                     f"per_symptom_eval/{symptom}_avg_{metric}": avg_symptom_metrics[
-#                         symptom
-#                     ][metric]["score"]
-#                 }
-#             )
+        phq_score_seed_evals = compute_phq_score_metrics(
+            phq_score_preds, phq_score_refs
+        )
+        phq_score_evals.append(phq_score_seed_evals)
+        print(json.dumps(phq_score_seed_evals, indent=4))
 
-#     avg_results = {
-#         "binary_classification": avg_classif_evals,
-#         "phq_score": avg_phq_score_evals,
-#         "severity_class": avg_severity_class_evals,
-#         "per_symptom_metrics": avg_symptom_metrics,
-#     }
+        severity_class_seed_evals = compute_severity_class_evals(
+            severity_class_preds, severity_class_refs
+        )
+        severity_class_evals.append(severity_class_seed_evals)
+        print(json.dumps(severity_class_seed_evals, indent=4))
 
-#     save_name = f"{args.model_name.split('/')[1]}_{n}_shot"
-#     with open(f"./{save_name}_avg_results.json", "w") as json_file:
-#         json.dump(avg_results, json_file, indent=4)
-#     wandb.save(f"{save_name}_avg_results.json")
+        per_symptom_seed_evals = calculate_per_symptom_metrics(raw_preds, raw_refs)
+        per_symptom_evals.append(per_symptom_seed_evals)
+        print(json.dumps(per_symptom_seed_evals, indent=4))
 
-#     with open(f"./{save_name}_raw_outputs.json", "w") as json_file:
-#         json.dump(raw_outputs, json_file, indent=4)
-#     wandb.save(f"{save_name}_raw_outputs.json")
+        raw_outputs[seed] = {"refs": raw_refs, "preds": raw_preds}
 
-#     wandb.finish()
+    avg_classif_evals = compute_average_metrics(dep_classif_evals)
+    print(json.dumps(avg_classif_evals, indent=4))
+    for metric in avg_classif_evals:
+        wandb.log({f"classif_eval/avg_{metric}": avg_classif_evals[metric]["score"]})
+
+    avg_severity_class_evals = compute_average_metrics(severity_class_evals)
+    print(json.dumps(avg_severity_class_evals, indent=4))
+    for metric in avg_severity_class_evals:
+        wandb.log(
+            {
+                f"severity_class_eval/avg_{metric}": avg_severity_class_evals[metric][
+                    "score"
+                ]
+            }
+        )
+
+    avg_phq_score_evals = compute_average_metrics(phq_score_evals)
+    print(json.dumps(avg_phq_score_evals, indent=4))
+    for metric in avg_phq_score_evals:
+        wandb.log(
+            {f"phq_regression_eval/avg_{metric}": avg_phq_score_evals[metric]["score"]}
+        )
+
+    avg_symptom_metrics = compute_average_symptom_metrics(per_symptom_evals)
+    print(json.dumps(avg_symptom_metrics, indent=4))
+    for symptom in avg_symptom_metrics:
+        for metric in avg_symptom_metrics[symptom]:
+            wandb.log(
+                {
+                    f"per_symptom_eval/{symptom}_avg_{metric}": avg_symptom_metrics[
+                        symptom
+                    ][metric]["score"]
+                }
+            )
+
+    avg_results = {
+        "binary_classification": avg_classif_evals,
+        "phq_score": avg_phq_score_evals,
+        "severity_class": avg_severity_class_evals,
+        "per_symptom_metrics": avg_symptom_metrics,
+    }
+
+    save_name = f"{args.model_name.split('/')[1]}_{n}_shot"
+    with open(f"./{save_name}_avg_results.json", "w") as json_file:
+        json.dump(avg_results, json_file, indent=4)
+    wandb.save(f"{save_name}_avg_results.json")
+
+    with open(f"./{save_name}_raw_outputs.json", "w") as json_file:
+        json.dump(raw_outputs, json_file, indent=4)
+    wandb.save(f"{save_name}_raw_outputs.json")
+
+    wandb.finish()
