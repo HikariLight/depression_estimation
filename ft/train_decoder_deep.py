@@ -41,7 +41,9 @@ print(args)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-run_name = f"[FT][D] {args.model_name.split('/')[1]}{'[QT]' if args.use_quantization else ''}"
+run_name = (
+    f"[FT][D] {args.model_name.split('/')[1]}{'[QT]' if args.use_quantization else ''}"
+)
 wandb.init(
     project="depression_detection",
     name=run_name,
@@ -72,11 +74,18 @@ print(dw_dataset["train"][0])
 
 def collate_fn(batch):
     tensors = tokenizer(
-        [example["dialogue"] for example in batch], padding=True, return_tensors="pt"
+        [example["dialogue"] for example in batch],
+        padding=True,
+        return_tensors="pt",
     )
 
     labels = [example["symptoms"] for example in batch]
-    return {"dialogue": tensors["input_ids"], "labels": labels}
+
+    return {
+        "dialogue": tensors["input_ids"],
+        "attention_mask": tensors["attention_mask"],
+        "labels": labels,
+    }
 
 
 train_dataloader = DataLoader(
@@ -174,7 +183,14 @@ for run in range(args.runs):
     wandb.log({"param_count": total_params})
 
     criterion = nn.MSELoss()
-    optimizer = optim.AdamW(classifier.parameters(), lr=args.lr)
+
+    if args.use_peft:
+        optimizer = optim.AdamW(
+            list(model.parameters()) + list(classifier.parameters()), lr=args.lr
+        )
+    else:
+        optimizer = optim.AdamW(classifier.parameters(), lr=args.lr)
+
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="max", factor=0.1, patience=2, verbose=True
     )
@@ -197,8 +213,12 @@ for run in range(args.runs):
 
             labels = torch.tensor(batch["labels"]).float().to(device)
             dialogue = batch["dialogue"].to(device)
+            attention_mask = batch["attention_mask"].to(device)
 
-            outputs = model(dialogue, output_hidden_states=True)
+            outputs = model(
+                dialogue, attention_mask=attention_mask, output_hidden_states=True
+            )
+
             feature_vectors = outputs.hidden_states[-1].float().mean(1)
             preds = classifier(feature_vectors)
 
@@ -232,8 +252,11 @@ for run in range(args.runs):
             for batch in validation_dataloader:
                 labels = torch.tensor(batch["labels"]).float().to(device)
                 dialogue = batch["dialogue"].to(device)
+                attention_mask = batch["attention_mask"].to(device)
 
-                outputs = model(dialogue, output_hidden_states=True)
+                outputs = model(
+                    dialogue, attention_mask=attention_mask, output_hidden_states=True
+                )
                 feature_vectors = outputs.hidden_states[-1].float().mean(1)
                 preds = classifier(feature_vectors)
 
@@ -441,4 +464,3 @@ with open(f"./{save_name}_raw_outputs.json", "w") as json_file:
 wandb.save(f"{save_name}_raw_outputs.json")
 
 wandb.finish()
-
